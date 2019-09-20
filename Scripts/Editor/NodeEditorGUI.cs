@@ -24,9 +24,10 @@ namespace XNodeEditor {
             Controls();
 
             DrawGrid(position, zoom, panOffset);
+            DrawNodes();
+
             DrawConnections();
             DrawDraggedConnection();
-            DrawNodes();
             DrawSelectionBox();
             DrawTooltip();
             graphEditor.OnGUI();
@@ -282,6 +283,7 @@ namespace XNodeEditor {
             Color guiColor = GUI.color;
 
             if (e.type == EventType.Layout) culledNodes = new List<XNode.Node>();
+            
             for (int n = 0; n < graph.nodes.Count; n++) {
                 // Skip null nodes. The user could be in the process of renaming scripts, so removing them at this point is not advisable.
                 if (graph.nodes[n] == null) continue;
