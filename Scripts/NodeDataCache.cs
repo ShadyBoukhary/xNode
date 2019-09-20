@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using UnityEngine;
@@ -19,8 +20,14 @@ namespace XNode {
 
             List<NodePort> typePortCache;
             if (portDataCache.TryGetValue(nodeType, out typePortCache)) {
-                for (int i = 0; i < typePortCache.Count; i++) {
-                    staticPorts.Add(typePortCache[i].fieldName, portDataCache[nodeType][i]);
+                for (int i = 0; i < typePortCache.Count; i++)
+                {
+                    var name = _getName(typePortCache[i]);
+                    if (staticPorts.ContainsKey(name))
+                    {
+                        continue;
+                    }
+                    staticPorts.Add(name, portDataCache[nodeType][i]);
                 }
             }
 
@@ -29,37 +36,42 @@ namespace XNode {
             foreach (NodePort port in ports.Values.ToList()) {
                 // If port still exists, check it it has been changed
                 NodePort staticPort;
-                if (staticPorts.TryGetValue(port.fieldName, out staticPort)) {
+                if (staticPorts.TryGetValue(_getName(port), out staticPort)) {
                     // If port exists but with wrong settings, remove it. Re-add it later.
                     if (port.IsDynamic || port.direction != staticPort.direction || port.connectionType != staticPort.connectionType || port.typeConstraint != staticPort.typeConstraint) {
                         // If port is not dynamic and direction hasn't changed, add it to the list so we can try reconnecting the ports connections.
-                        if (!port.IsDynamic && port.direction == staticPort.direction) removedPorts.Add(port.fieldName, port.GetConnections());
+                        if (!port.IsDynamic && port.direction == staticPort.direction) removedPorts.Add(_getName(port), port.GetConnections());
                         port.ClearConnections();
-                        ports.Remove(port.fieldName);
+                        ports.Remove(_getName(port));
                     } else port.ValueType = staticPort.ValueType;
                 }
                 // If port doesn't exist anymore, remove it
                 else if (port.IsStatic) {
                     port.ClearConnections();
-                    ports.Remove(port.fieldName);
+                    ports.Remove(_getName(port));
                 }
             }
             // Add missing ports
             foreach (NodePort staticPort in staticPorts.Values) {
-                if (!ports.ContainsKey(staticPort.fieldName)) {
+                if (!ports.ContainsKey(_getName(staticPort))) {
                     NodePort port = new NodePort(staticPort, node);
                     //If we just removed the port, try re-adding the connections
                     List<NodePort> reconnectConnections;
-                    if (removedPorts.TryGetValue(staticPort.fieldName, out reconnectConnections)) {
+                    if (removedPorts.TryGetValue(_getName(staticPort), out reconnectConnections)) {
                         for (int i = 0; i < reconnectConnections.Count; i++) {
                             NodePort connection = reconnectConnections[i];
                             if (connection == null) continue;
                             if (port.CanConnectTo(connection)) port.Connect(connection);
                         }
                     }
-                    ports.Add(staticPort.fieldName, port);
+                    ports.Add(_getName(staticPort), port);
                 }
             }
+        }
+
+        private static string _getName(NodePort port)
+        {
+            return $"{port.fieldName}";
         }
 
         /// <summary> Cache node types </summary>
