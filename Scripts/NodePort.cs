@@ -19,9 +19,18 @@ namespace XNode {
             }
         }
 
-        public IO direction { get { return _direction; } }
-        public Node.ConnectionType connectionType { get { return _connectionType; } }
-        public Node.TypeConstraint typeConstraint { get { return _typeConstraint; } }
+        public IO direction { 
+            get { return _direction; }
+            internal set { _direction = value; }
+        }
+        public Node.ConnectionType connectionType {
+            get { return _connectionType; }
+            internal set { _connectionType = value; }
+        }
+        public Node.TypeConstraint typeConstraint {
+            get { return _typeConstraint; }
+            internal set { _typeConstraint = value; }
+        }
 
         /// <summary> Is this port connected to anytihng? </summary>
         public bool IsConnected { get { return connections.Count != 0; } }
@@ -38,8 +47,9 @@ namespace XNode {
                 return valueType;
             }
             set {
+                if (valueType == value) return;
                 valueType = value;
-                if (value != null) _typeQualifiedName = value.AssemblyQualifiedName;
+                if (value != null) _typeQualifiedName = NodeDataCache.GetTypeQualifiedName(value);
             }
         }
         private Type valueType;
@@ -68,6 +78,10 @@ namespace XNode {
                     _direction = IO.Output;
                     _connectionType = (attribs[i] as Node.OutputAttribute).connectionType;
                     _typeConstraint = (attribs[i] as Node.OutputAttribute).typeConstraint;
+                }
+                // Override ValueType of the Port
+                if(attribs[i] is PortTypeOverrideAttribute) {
+                    ValueType = (attribs[i] as PortTypeOverrideAttribute).type;
                 }
             }
         }
@@ -199,6 +213,10 @@ namespace XNode {
             if (port == this) { Debug.LogWarning("Cannot connect port to self."); return; }
             if (IsConnectedTo(port)) { Debug.LogWarning("Port already connected. "); return; }
             if (direction == port.direction) { Debug.LogWarning("Cannot connect two " + (direction == IO.Input ? "input" : "output") + " connections"); return; }
+#if UNITY_EDITOR
+            UnityEditor.Undo.RecordObject(node, "Connect Port");
+            UnityEditor.Undo.RecordObject(port.node, "Connect Port");
+#endif
             if (port.connectionType == Node.ConnectionType.Override && port.ConnectionCount != 0) { port.ClearConnections(); }
             if (connectionType == Node.ConnectionType.Override && ConnectionCount != 0) { ClearConnections(); }
             connections.Add(new PortConnection(port));
@@ -259,9 +277,13 @@ namespace XNode {
             // Check input type constraints
             if (input.typeConstraint == XNode.Node.TypeConstraint.Inherited && !input.ValueType.IsAssignableFrom(output.ValueType)) return false;
             if (input.typeConstraint == XNode.Node.TypeConstraint.Strict && input.ValueType != output.ValueType) return false;
+            if (input.typeConstraint == XNode.Node.TypeConstraint.InheritedInverse && !output.ValueType.IsAssignableFrom(input.ValueType)) return false;
+            if (input.typeConstraint == XNode.Node.TypeConstraint.InheritedAny && !input.ValueType.IsAssignableFrom(output.ValueType) && !output.ValueType.IsAssignableFrom(input.ValueType)) return false;
             // Check output type constraints
-            if (output.typeConstraint == XNode.Node.TypeConstraint.Inherited && !output.ValueType.IsAssignableFrom(input.ValueType)) return false;
-            if (output.typeConstraint == XNode.Node.TypeConstraint.Strict && output.ValueType != input.ValueType) return false;
+            if (output.typeConstraint == XNode.Node.TypeConstraint.Inherited && !input.ValueType.IsAssignableFrom(output.ValueType)) return false;
+            if (output.typeConstraint == XNode.Node.TypeConstraint.Strict && input.ValueType != output.ValueType) return false;
+            if (output.typeConstraint == XNode.Node.TypeConstraint.InheritedInverse && !output.ValueType.IsAssignableFrom(input.ValueType)) return false;
+            if (output.typeConstraint == XNode.Node.TypeConstraint.InheritedAny && !input.ValueType.IsAssignableFrom(output.ValueType) && !output.ValueType.IsAssignableFrom(input.ValueType)) return false;
             // Success
             return true;
         }
@@ -279,12 +301,13 @@ namespace XNode {
                 for (int i = 0; i < port.connections.Count; i++) {
                     if (port.connections[i].Port == this) {
                         port.connections.RemoveAt(i);
+                        // Trigger OnRemoveConnection from this side port
+                        port.node.OnRemoveConnection(port);
                     }
                 }
             }
             // Trigger OnRemoveConnection
             node.OnRemoveConnection(this);
-            if (port != null) port.node.OnRemoveConnection(port);
         }
 
         /// <summary> Disconnect this port from another port </summary>
@@ -292,11 +315,7 @@ namespace XNode {
             // Remove the other ports connection to this port
             NodePort otherPort = connections[i].Port;
             if (otherPort != null) {
-                for (int k = 0; k < otherPort.connections.Count; k++) {
-                    if (otherPort.connections[k].Port == this) {
-                        otherPort.connections.RemoveAt(i);
-                    }
-                }
+                otherPort.connections.RemoveAll(it => { return it.Port == this; });
             }
             // Remove this ports connection to the other
             connections.RemoveAt(i);
